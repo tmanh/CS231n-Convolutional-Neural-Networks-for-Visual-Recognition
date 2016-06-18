@@ -38,7 +38,7 @@ class ThreeLayerConvNet(object):
     self.dtype = dtype
 
     ############################################################################
-    # TODO: Initialize weights and biases for the three-layer convolutional    #
+    # XXX: Initialize weights and biases for the three-layer convolutional     #
     # network. Weights should be initialized from a Gaussian with standard     #
     # deviation equal to weight_scale; biases should be initialized to zero.   #
     # All weights and biases should be stored in the dictionary self.params.   #
@@ -47,7 +47,16 @@ class ThreeLayerConvNet(object):
     # hidden affine layer, and keys 'W3' and 'b3' for the weights and biases   #
     # of the output affine layer.                                              #
     ############################################################################
-    
+    C, H, W = input_dim
+
+    # pool_height = 2, pool_width = 2
+    self.params['W1'] = weight_scale * np.random.rand(num_filters, C, filter_size, filter_size)
+    self.params['W2'] = weight_scale * np.random.rand(num_filters * (H/2) * (W/2), hidden_dim)
+    self.params['W3'] = weight_scale * np.random.rand(hidden_dim, num_classes)
+
+    self.params['b1'] = np.zeros(num_filters)
+    self.params['b2'] = np.zeros(hidden_dim)
+    self.params['b3'] = np.zeros(num_classes)
     ############################################################################
     #                             END OF YOUR CODE                             #
     ############################################################################
@@ -75,11 +84,18 @@ class ThreeLayerConvNet(object):
 
     scores = None
     ############################################################################
-    # TODO: Implement the forward pass for the three-layer convolutional net,  #
+    # XXX: Implement the forward pass for the three-layer convolutional net,  #
     # computing the class scores for X and storing them in the scores          #
     # variable.                                                                #
     ############################################################################
-    pass
+    """conv - relu - 2x2 max pool - affine - relu - affine - softmax"""
+    scores, conv_cache1 = conv_forward_naive(X, W1, b1, conv_param)
+    scores, relu_cache1 = relu_forward(scores)
+    scores, pool_cache1 = max_pool_forward_naive(x=scores, pool_param=pool_param)
+    scores, affine_cache2 = affine_forward(x=scores, w=W2, b=b2)
+    scores, relu_cache2 = relu_forward(x=scores)
+    scores, affine_cache3 = affine_forward(x=scores, w=W3, b=b3)
+
     ############################################################################
     #                             END OF YOUR CODE                             #
     ############################################################################
@@ -89,12 +105,31 @@ class ThreeLayerConvNet(object):
 
     loss, grads = 0, {}
     ############################################################################
-    # TODO: Implement the backward pass for the three-layer convolutional net, #
+    # XXX: Implement the backward pass for the three-layer convolutional net, #
     # storing the loss and gradients in the loss and grads variables. Compute  #
     # data loss using softmax, and make sure that grads[k] holds the gradients #
     # for self.params[k]. Don't forget to add L2 regularization!               #
     ############################################################################
-    pass
+    loss, dx = softmax_loss(x=scores, y=y)
+
+    """conv - relu - 2x2 max pool - affine - relu - affine - softmax"""
+    dx, grads['W3'], grads['b3'] = affine_backward(dout=dx, cache=affine_cache3)
+    grads['W3'] = grads['W3'] + self.reg * W3
+    grads['b3'] = grads['b3'] + self.reg * b3
+    loss += np.sum(0.5 * self.reg * W3**2) + np.sum(0.5 * self.reg * b3**2)
+
+    dx = relu_backward(dout=dx, cache=relu_cache2)
+    dx, grads['W2'], grads['b2'] = affine_backward(dout=dx, cache=affine_cache2)
+    grads['W2'] = grads['W2'] + self.reg * W2
+    grads['b2'] = grads['b2'] + self.reg * b2
+    loss += np.sum(0.5 * self.reg * W2**2)+ np.sum(0.5 * self.reg * b2**2)
+
+    dx = max_pool_backward_naive(dout=dx, cache=pool_cache1)
+    dx = relu_backward(dout=dx, cache=relu_cache1)
+    dx, grads['W1'], grads['b1'] = conv_backward_naive(dout=dx, cache=conv_cache1)
+    grads['W1'] = grads['W1'] + self.reg * W1
+    grads['b1'] = grads['b1'] + self.reg * b1
+    loss += np.sum(0.5 * self.reg * W1**2) + np.sum(0.5 * self.reg * b1**2)
     ############################################################################
     #                             END OF YOUR CODE                             #
     ############################################################################
