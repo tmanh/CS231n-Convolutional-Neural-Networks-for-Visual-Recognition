@@ -16,18 +16,18 @@ class CaptioningSolver(object):
 
   To train a model, you will first construct a CaptioningSolver instance,
   passing the model, dataset, and various options (learning rate, batch size,
-  etc) to the constructor. You will then call the train() method to run the 
+  etc) to the constructor. You will then call the train() method to run the
   optimization procedure and train the model.
-  
+
   After the train() method returns, model.params will contain the parameters
   that performed best on the validation set over the course of training.
   In addition, the instance variable solver.loss_history will contain a list
   of all losses encountered during training and the instance variables
   solver.train_acc_history and solver.val_acc_history will be lists containing
   the accuracies of the model on the training and validation set at each epoch.
-  
+
   Example usage might look something like this:
-  
+
   data = load_coco_data()
   model = MyAwesomeModel(hidden_dim=100)
   solver = CaptioningSolver(model, data,
@@ -64,7 +64,7 @@ class CaptioningSolver(object):
   def __init__(self, model, data, **kwargs):
     """
     Construct a new CaptioningSolver instance.
-    
+
     Required arguments:
     - model: A model object conforming to the API described above
     - data: A dictionary of training and validation data from load_coco_data
@@ -88,7 +88,7 @@ class CaptioningSolver(object):
     """
     self.model = model
     self.data = data
-    
+
     # Unpack keyword arguments
     self.update_rule = kwargs.pop('update_rule', 'sgd')
     self.optim_config = kwargs.pop('optim_config', {})
@@ -156,12 +156,13 @@ class CaptioningSolver(object):
       self.model.params[p] = next_w
       self.optim_configs[p] = next_config
 
-  
+
   # TODO: This does nothing right now; maybe implement BLEU?
-  def check_accuracy(self, X, y, num_samples=None, batch_size=100):
+  def check_accuracy(self, captions, features, num_samples=None,
+                     batch_size=100):
     """
     Check accuracy of the model on the provided data.
-    
+
     Inputs:
     - X: Array of data, of shape (N, d_1, ..., d_k)
     - y: Array of labels, of shape (N,)
@@ -169,35 +170,20 @@ class CaptioningSolver(object):
       on num_samples datapoints.
     - batch_size: Split X and y into batches of this size to avoid using too
       much memory.
-      
+
     Returns:
     - acc: Scalar giving the fraction of instances that were correctly
       classified by the model.
     """
-    return 0.0
-    
-    # Maybe subsample the data
-    N = X.shape[0]
-    if num_samples is not None and N > num_samples:
-      mask = np.random.choice(N, num_samples)
-      N = num_samples
-      X = X[mask]
-      y = y[mask]
 
-    # Compute predictions in batches
-    num_batches = N / batch_size
-    if N % batch_size != 0:
-      num_batches += 1
-    y_pred = []
-    for i in xrange(num_batches):
-      start = i * batch_size
-      end = (i + 1) * batch_size
-      scores = self.model.loss(X[start:end])
-      y_pred.append(np.argmax(scores, axis=1))
-    y_pred = np.hstack(y_pred)
-    acc = np.mean(y_pred == y)
+    compared = np.zeros(captions.shape)
+    predicted_captions = self.model.sample(features,
+                                           max_length=captions.shape[1])
+    compared = np.equal(predicted_captions[:,:], captions[:,:]).astype(int)
 
-    return acc
+    out = np.mean(np.mean(compared, axis=1))
+
+    return out
 
 
   def train(self):
@@ -227,7 +213,47 @@ class CaptioningSolver(object):
       # Check train and val accuracy on the first iteration, the last
       # iteration, and at the end of each epoch.
       # TODO: Implement some logic to check Bleu on validation set periodically
+      first_it = (t == 0)
+      last_it = (t == num_iterations + 1)
+      if first_it or last_it or epoch_end:
+        trainCaptions, trainFeatures, _ = sample_coco_minibatch(self.data,
+                                                                batch_size=100,
+                                                                split='train')
+
+        valCaptions, valFeatures, _ = sample_coco_minibatch(self.data,
+                                              batch_size=100,
+                                              split='val')
+
+        train_acc = self.check_accuracy(trainCaptions, trainFeatures)
+
+        val_acc = self.check_accuracy(valCaptions, valFeatures)
+
+        self.train_acc_history.append(train_acc)
+        self.val_acc_history.append(val_acc)
+
+        if self.verbose:
+          print '(Epoch %d / %d) train acc: %f; val_acc: %f' % (
+                 self.epoch, self.num_epochs, train_acc, val_acc)
+
+        # Keep track of the best model
+        if val_acc > self.best_val_acc:
+          self.best_val_acc = val_acc
+          self.best_params = {}
+          for k, v in self.model.params.iteritems():
+            self.best_params[k] = v.copy()
 
     # At the end of training swap the best params into the model
-    # self.model.params = self.best_params
+    self.model.params = self.best_params
 
+
+  def predict(self, X_test, y_test, num_samples):
+    """
+    Check accuracy of the model on the test data.
+
+    Returns:
+    - acc: Scalar giving the fraction of instances that were correctly
+      classified by the model.
+    """
+
+    acc = self.check_accuracy(X_test, y_test, num_samples)
+    return acc
