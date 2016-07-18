@@ -156,7 +156,18 @@ class CaptioningRNN(object):
     # [h ~ (N x T x H)] = rnn_forward(x ~ (N x T x W), h0 ~ (N x H),
     #                                 Wx ~ (W, H), Wh ~ (H, H), b ~ (H,))
 
-    h, cache_hidden = rnn_forward(x=captions_embed, h0=h0, Wx=Wx, Wh=Wh, b=b)
+    if self.cell_type == 'rnn':
+        h, cache_hidden = rnn_forward(x=captions_embed,
+                                      h0=h0,
+                                      Wx=Wx,
+                                      Wh=Wh,
+                                      b=b)
+    else:
+        h, cache_hidden = lstm_forward(x=captions_embed,
+                                       h0=h0,
+                                       Wx=Wx,
+                                       Wh=Wh,
+                                       b=b)
 
     # (4) Use affine transformation to compute scores over the vocabulary
     # at every timestep using the hidden states, giving an array of shape
@@ -176,8 +187,13 @@ class CaptioningRNN(object):
     dh, grads['W_vocab'], grads['b_vocab'] = \
         temporal_affine_backward(dx, cache_vocab)
 
-    dout, dh0, grads['Wx'], grads['Wh'], grads['b'] = \
-        rnn_backward (dh, cache_hidden)
+    if self.cell_type == 'rnn':
+        dout, dh0, grads['Wx'], grads['Wh'], grads['b'] = \
+            rnn_backward (dh, cache_hidden)
+    else:
+        dout, dh0, grads['Wx'], grads['Wh'], grads['b'] = \
+            lstm_backward (dh, cache_hidden)
+
 
     grads['W_embed'] = word_embedding_backward(dout, cache_embed)
 
@@ -247,6 +263,8 @@ class CaptioningRNN(object):
     # in a loop.                                                             #
     ##########################################################################
 
+    H = Wh.shape[0]
+
     # FORWARD
 
     # init start word
@@ -256,20 +274,30 @@ class CaptioningRNN(object):
     # h ~ (N x H) =
     #      [features ~ (N x D)] x [W_proj ~ (D x H)] + [b_proj ~ (D x H)]
     h = features.dot(W_proj) + b_proj
+    c = np.zeros((N, H))
 
-    # (1) Transform the words in "captions_in" from indices (N, I) to vectors
-    # (N x T x W)
-    captions_embed, _ = word_embedding_forward(captions, W_embed)
+    # (1) embed the first word in the caption
+    # remind: embed word = W[caption, :]
+    captions_embed = W_embed[captions[:, 0]]
 
     for i in range(1, max_length):
         # (2) Make an RNN step using the previous hidden state and the
         # embedded current word to get the next hidden state.
 
-        h, _ = rnn_step_forward(x=captions_embed[:, i-1, :],
-                                prev_h=h,
-                                Wx=Wx,
-                                Wh=Wh,
-                                b=b)
+        if self.cell_type == 'rnn':
+            h, _ = rnn_step_forward(x=captions_embed,
+                                    prev_h=h,
+                                    Wx=Wx,
+                                    Wh=Wh,
+                                    b=b)
+        else:
+            h, c, _ = lstm_step_forward(x=captions_embed,
+                                        prev_h=h,
+                                        prev_c=c,
+                                        Wx=Wx,
+                                        Wh=Wh,
+                                        b=b)
+
 
         # (3) Apply the learned affine transformation to the next hidden state
         # to get scores for all words in the vocabulary
@@ -284,7 +312,8 @@ class CaptioningRNN(object):
         # probs = np.exp(out_flat - np.max(out_flat, axis=1, keepdims=True))
         # probs /= np.sum(probs, axis=1, keepdims=True)
 
-        captions[:, i-1] = np.argmax(out_flat, axis=1)
+        captions[:, i] = np.argmax(out_flat, axis=1)
+        captions_embed = W_embed[captions[:, i]]
 
     ##########################################################################
     #                             END OF YOUR CODE                           #

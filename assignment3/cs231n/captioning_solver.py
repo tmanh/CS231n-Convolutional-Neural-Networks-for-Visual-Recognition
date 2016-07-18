@@ -213,6 +213,7 @@ class CaptioningSolver(object):
       # Check train and val accuracy on the first iteration, the last
       # iteration, and at the end of each epoch.
       # TODO: Implement some logic to check Bleu on validation set periodically
+
       first_it = (t == 0)
       last_it = (t == num_iterations + 1)
       if first_it or last_it or epoch_end:
@@ -245,15 +246,3 @@ class CaptioningSolver(object):
     # At the end of training swap the best params into the model
     self.model.params = self.best_params
 
-
-  def predict(self, X_test, y_test, num_samples):
-    """
-    Check accuracy of the model on the test data.
-
-    Returns:
-    - acc: Scalar giving the fraction of instances that were correctly
-      classified by the model.
-    """
-
-    acc = self.check_accuracy(X_test, y_test, num_samples)
-    return acc
